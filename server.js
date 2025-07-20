@@ -1,6 +1,5 @@
 // server.js — منصة إدارة إجازات "عبدالإله سليمان عبدالله الهديلج"
 
-require('dotenv').config();
 const express       = require('express');
 const helmet        = require('helmet');
 const cors          = require('cors');
@@ -13,19 +12,19 @@ const xssClean      = require('xss-clean');
 const mongoSanitize = require('express-mongo-sanitize');
 const path          = require('path');
 
-const app               = express();
-const PORT              = process.env.PORT || 3000;
-const RECAPTCHA_SECRET  = process.env.RECAPTCHA_SECRET || '';
+const app              = express();
+const PORT             = process.env.PORT || 3000;
+const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET || '';
 
-// ثقة بالـ proxy لتحصيل الـ IP الحقيقي خلف CDN أو Load Balancer
+// إذا كان الخادم خلف CDN أو Load Balancer
 app.set('trust proxy', 1);
 
-// الدومينات المسموح لها بالوصول للـ API
+// قائمة النطاقات المسموح لها بالوصول
 const ALLOWED_ORIGINS = [
   'https://sicklv.shop',
   'https://www.sicklv.shop',
   'https://my-project-502-1.onrender.com',
-  'https://your-netlify-site.netlify.app' // ← أضف هنا دومين الواجهة الفعلي
+  'https://your-netlify-site.netlify.app' // ← عدّل ليناسب دومين الواجهة النهائي
 ];
 
 // إعداد Winston للتسجيل
@@ -70,7 +69,7 @@ app.use(cors({
   optionsSuccessStatus: 200
 }));
 
-// ===== حماية إضافية =====
+// ===== حماية إضافية وميدل‌ويرات =====
 app.use(hpp());
 app.use(xssClean());
 app.use(mongoSanitize());
@@ -79,8 +78,8 @@ app.use(useragent.express());
 
 // ===== تحديد الحد الأعلى للطلبات =====
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
+  windowMs: 15 * 60 * 1000, // 15 دقيقة
+  max: 30,                  // 30 طلب لكل IP
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -102,14 +101,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== دالة لحساب عدد الأيام =====
 function calcDays(start, end) {
-  try {
-    const s = new Date(start);
-    const e = new Date(end);
-    if (isNaN(s) || isNaN(e) || e < s) return 0;
-    return Math.floor((e - s) / (1000 * 60 * 60 * 24)) + 1;
-  } catch {
-    return 0;
-  }
+  const s = new Date(start), e = new Date(end);
+  if (isNaN(s) || isNaN(e) || e < s) return 0;
+  return Math.floor((e - s) / (1000 * 60 * 60 * 24)) + 1;
 }
 
 // ===== بيانات الإجازات الافتراضية =====
@@ -178,7 +172,7 @@ app.post('/api/leave', async (req, res) => {
     return res.status(400).json({ success: false, message: "البيانات غير صحيحة." });
   }
 
-  // التحقق اختياري عبر reCAPTCHA
+  // reCAPTCHA اختياري
   if (RECAPTCHA_SECRET && captchaToken) {
     try {
       const resp = await axios.post(
@@ -196,13 +190,12 @@ app.post('/api/leave', async (req, res) => {
     }
   }
 
-  // البحث عن السجل وإرجاعه
+  // إرجاع السجل إن وجد
   const record = leaves.find(item =>
     item.serviceCode === serviceCode && item.idNumber === idNumber
   );
-  if (record) {
-    return res.json({ success: true, record });
-  }
+  if (record) return res.json({ success: true, record });
+
   return res.status(404).json({ success: false, message: "لا يوجد سجل مطابق." });
 });
 
@@ -214,7 +207,7 @@ app.post('/api/add-leave', (req, res) => {
     doctorName, jobTitle
   } = req.body;
 
-  // التحقق من صحة المدخلات
+  // التحقق من صحة البيانات
   if (
     typeof serviceCode !== 'string' || !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
     typeof idNumber   !== 'string' || !/^[0-9]{10}$/.test(idNumber) ||
