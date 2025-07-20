@@ -1,26 +1,34 @@
-
 // server.js — منصة إدارة إجازات "عبدالإله سليمان عبدالله الهديلج"
-const express        = require('express');
-const helmet         = require('helmet');
-const cors           = require('cors');
-const rateLimit      = require('express-rate-limit');
-const hpp            = require('hpp');
-const geoip          = require('geoip-lite');
-const useragent      = require('express-useragent');
-const winston        = require('winston');
-const axios          = require('axios');
-const xssClean       = require('xss-clean');
-const mongoSanitize  = require('express-mongo-sanitize');
-const path           = require('path');
+
 require('dotenv').config();
+const express         = require('express');
+const helmet          = require('helmet');
+const cors            = require('cors');
+const rateLimit       = require('express-rate-limit');
+const hpp             = require('hpp');
+const useragent       = require('express-useragent');
+const winston         = require('winston');
+const axios           = require('axios');
+const xssClean        = require('xss-clean');
+const mongoSanitize   = require('express-mongo-sanitize');
+const path            = require('path');
 
-const app                  = express();
-const PORT                 = process.env.PORT || 3000;
-const ALLOWED_ORIGINS      = ['https://sicklv.shop'];
-const ALLOWED_COUNTRIES    = ['SA', 'AE', 'KW', 'QA', 'OM', 'BH', 'EG', 'JO', 'SD'];
-const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY || "";
+const app               = express();
+const PORT              = process.env.PORT || 3000;
+const RECAPTCHA_SECRET  = process.env.RECAPTCHASECRETKEY || '';
 
-// نظام التسجيل الدقيق بالنظام
+// الدومينات المسموح لها بالوصول للـ API
+const ALLOWED_ORIGINS   = [
+  'https://sicklv.shop',
+  'https://www.sicklv.shop'
+];
+
+// رموز دول الخليج وبعض الدول المسموح بها
+const ALLOWED_COUNTRIES = [
+  'SA', 'AE', 'KW', 'QA', 'OM', 'BH', 'EG', 'JO', 'SD'
+];
+
+// إعداد Winston للتسجيل في ملف والكونسول
 const logger = winston.createLogger({
   transports: [
     new winston.transports.File({ filename: 'activity.log' }),
@@ -28,10 +36,10 @@ const logger = winston.createLogger({
   ]
 });
 
-// رؤوس وحماية أمان متقدمة
+// ===== رؤوس الأمان =====
 app.use(helmet());
 app.use(helmet.hsts({
-  maxAge: 63072000,
+  maxAge: 2 * 365 * 24 * 60 * 60, // سنتان بالثواني
   includeSubDomains: true,
   preload: true
 }));
@@ -40,7 +48,7 @@ app.use(helmet.contentSecurityPolicy({
     defaultSrc: ["'self'"],
     scriptSrc:  ["'self'", "https://www.google.com", "https://www.gstatic.com"],
     styleSrc:   ["'self'", "'unsafe-inline'"],
-    imgSrc:     ["'self'", "data:", "https://www.google.com", "https://www.gstatic.com"],
+    imgSrc:     ["'self'", "data:"],
     objectSrc:  ["'none'"],
     frameAncestors: ["'none'"],
     upgradeInsecureRequests: [],
@@ -49,29 +57,30 @@ app.use(helmet.contentSecurityPolicy({
   }
 }));
 
-// تفعيل CORS للمجالات المصرح بها فقط
+// ===== ضبط CORS =====
 app.use(cors({
-  origin: (origin, callback) => {
+  origin(origin, callback) {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('غير مسموح'));
+      return callback(null, true);
     }
+    logger.warn(`[CORS Blocked] Origin: ${origin}`);
+    callback(new Error('الدخول مرفوض من هذا المصدر'));
   },
-  optionsSuccessStatus: 200,
-  credentials: true
+  credentials: true,
+  optionsSuccessStatus: 200
 }));
 
-// أنواع حماية إضافية
+// ===== حماية إضافية =====
 app.use(hpp());
 app.use(xssClean());
 app.use(mongoSanitize());
-app.use(express.json({ limit: '12kb' }));
+app.use(express.json({ limit: '16kb' }));
+app.use(useragent.express());
 
-// تحديد الحد الأعلى للطلبات (30 طلب لكل 15 دقيقة)
+// ===== تحديد الحد الأعلى للطلبات =====
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
+  windowMs: 15 * 60 * 1000, // 15 دقيقة
+  max: 30,                  // 30 طلب لكل IP
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -79,99 +88,155 @@ app.use(rateLimit({
     message: "تم تقييد طلبك مؤقتاً."
   }
 }));
-app.use(useragent.express());
 
-// الحجب الجغرافي بناءً على الدولة
+// ===== حجب جغرافي عبر Cloudflare =====
 app.use((req, res, next) => {
-  const ip  = req.headers['cf-connecting-ip'] || req.ip;
-  const geo = geoip.lookup(ip);
-  if (geo && geo.country && !ALLOWED_COUNTRIES.includes(geo.country)) {
-    logger.warn(`[GeoBlock]: البلد = ${geo.country} - IP: ${ip}`);
-    return res.status(403).json({ success: false, message: "الوصول مرفوض من منطقتك." });
+  const country = req.headers['cf-ipcountry'];
+  if (country && !ALLOWED_COUNTRIES.includes(country)) {
+    const ip = req.headers['cf-connecting-ip'] || req.ip;
+    logger.warn(`[GeoBlock] Country: ${country}, IP: ${ip}`);
+    return res
+      .status(403)
+      .json({ success: false, message: "الوصول مرفوض من منطقتك." });
   }
   next();
 });
 
-// تسجيل حركة كل طلب
+// ===== تسجيل حركة كل طلب =====
 app.use((req, res, next) => {
-  logger.info(`[${new Date().toISOString()}] [${req.ip}] [UA:${req.useragent.source}] ${req.method} ${req.originalUrl}`);
+  logger.info(
+    `[${new Date().toISOString()}] [IP: ${req.ip}] [UA: ${req.useragent.source}] ${req.method} ${req.originalUrl}`
+  );
   next();
 });
 
-// تقديم ملفات ثابته (اختياري)
+// ===== تقديم ملفات الواجهة الثابتة =====
 app.use(express.static(path.join(__dirname, 'public')));
 
-// دالة لحساب عدد الأيام بين تاريخين
+// ===== دالة لحساب عدد الأيام =====
 function calcDays(start, end) {
   try {
     const s = new Date(start);
     const e = new Date(end);
     if (isNaN(s) || isNaN(e) || e < s) return 0;
     return Math.floor((e - s) / (1000 * 60 * 60 * 24)) + 1;
-  } catch { return 0; }
+  } catch {
+    return 0;
+  }
 }
 
-// بيانات الإجازات الافتراضية
+// ===== بيانات الإجازات الافتراضية =====
 const leavesRaw = [
-  {serviceCode: "GSL25021372778", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-02-09", startDate: "2025-02-09", endDate: "2025-02-24", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
-  {serviceCode: "GSL25021898579", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-02-25", startDate: "2025-02-25", endDate: "2025-03-26", doctorName: "جمال راشد السر محمد احمد", jobTitle: "استشاري"},
-  {serviceCode: "GSL25022385036", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-03-27", startDate: "2025-03-27", endDate: "2025-04-17", doctorName: "جمال راشد السر محمد احمد", jobTitle: "استشاري"},
-  {serviceCode: "GSL25022884602", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-04-18", startDate: "2025-04-18", endDate: "2025-05-15", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
-  {serviceCode: "GSL25023345012", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-05-16", startDate: "2025-05-16", endDate: "2025-06-12", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
-  {serviceCode: "GSL25062955824", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-06-13", startDate: "2025-06-13", endDate: "2025-07-11", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
-  {serviceCode: "GSL25071678945", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-07-12", startDate: "2025-07-12", endDate: "2025-07-17", doctorName: "عبدالعزيز فهد هميجان الروقي", jobTitle: "استشاري"}
+  {
+    serviceCode: "GSL25021372778", idNumber: "1088576044",
+    name: "عبدالإله سليمان عبدالله الهديلج",
+    reportDate: "2025-02-09", startDate: "2025-02-09",
+    endDate: "2025-02-24", doctorName: "هدى مصطفى خضر دحبور",
+    jobTitle: "استشاري"
+  },
+  {
+    serviceCode: "GSL25021898579", idNumber: "1088576044",
+    name: "عبدالإله سليمان عبدالله الهديلج",
+    reportDate: "2025-02-25", startDate: "2025-02-25",
+    endDate: "2025-03-26", doctorName: "جمال راشد السر محمد احمد",
+    jobTitle: "استشاري"
+  },
+  {
+    serviceCode: "GSL25022385036", idNumber: "1088576044",
+    name: "عبدالإله سليمان عبدالله الهديلج",
+    reportDate: "2025-03-27", startDate: "2025-03-27",
+    endDate: "2025-04-17", doctorName: "جمال راشد السر محمد احمد",
+    jobTitle: "استشاري"
+  },
+  {
+    serviceCode: "GSL25022884602", idNumber: "1088576044",
+    name: "عبدالإله سليمان عبدالله الهديلج",
+    reportDate: "2025-04-18", startDate: "2025-04-18",
+    endDate: "2025-05-15", doctorName: "هدى مصطفى خضر دحبور",
+    jobTitle: "استشاري"
+  },
+  {
+    serviceCode: "GSL25023345012", idNumber: "1088576044",
+    name: "عبدالإله سليمان عبدالله الهديلج",
+    reportDate: "2025-05-16", startDate: "2025-05-16",
+    endDate: "2025-06-12", doctorName: "هدى مصطفى خضر دحبور",
+    jobTitle: "استشاري"
+  },
+  {
+    serviceCode: "GSL25062955824", idNumber: "1088576044",
+    name: "عبدالإله سليمان عبدالله الهديلج",
+    reportDate: "2025-06-13", startDate: "2025-06-13",
+    endDate: "2025-07-11", doctorName: "هدى مصطفى خضر دحبور",
+    jobTitle: "استشاري"
+  },
+  {
+    serviceCode: "GSL25071678945", idNumber: "1088576044",
+    name: "عبدالإله سليمان عبدالله الهديلج",
+    reportDate: "2025-07-12", startDate: "2025-07-12",
+    endDate: "2025-07-17", doctorName: "عبدالعزيز فهد هميجان الروقي",
+    jobTitle: "استشاري"
+  }
 ];
 
-// إضافة days لكل سجل
+// إضافة حقل days لكل سجل
 const leaves = leavesRaw.map(rec => ({
   ...rec,
   days: calcDays(rec.startDate, rec.endDate)
 }));
 
-// استعلام عن الإجازة
+// ===== مسار استعلام الإجازة =====
 app.post('/api/leave', async (req, res) => {
   const { serviceCode, idNumber, captchaToken } = req.body;
+
+  // التحقق من المدخلات
   if (
-    typeof serviceCode !== 'string' || !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
-    typeof idNumber !== 'string' || !/^[0-9]{10}$/.test(idNumber)
+    typeof serviceCode !== 'string' ||
+    !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
+    typeof idNumber !== 'string' ||
+    !/^[0-9]{10}$/.test(idNumber)
   ) {
     return res.status(400).json({ success: false, message: "البيانات غير صحيحة." });
   }
 
-  // تحقق reCAPTCHA
-  if (RECAPTCHA_SECRET_KEY && captchaToken) {
+  // التحقق بـ reCAPTCHA (اختياري)
+  if (RECAPTCHA_SECRET && captchaToken) {
     try {
       const resp = await axios.post(
         'https://www.google.com/recaptcha/api/siteverify',
         new URLSearchParams({
-          secret: RECAPTCHA_SECRET_KEY,
+          secret: RECAPTCHA_SECRET,
           response: captchaToken
         }).toString(),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
       );
-      if (!resp.data.success || (resp.data.score !== undefined && resp.data.score < 0.5)) {
-        logger.warn(`[reCAPTCHA]: فشل التحقق من ${req.ip}`);
+
+      if (!resp.data.success ||
+         (resp.data.score !== undefined && resp.data.score < 0.5)) {
+        logger.warn(`[reCAPTCHA Failed] IP: ${req.ip}`);
         return res.status(403).json({ success: false, message: "فشل التحقق الأمني." });
       }
     } catch (err) {
-      logger.error(`[reCAPTCHA] خطأ جوجل: ${err.message}`);
-      return res.status(500).json({ success: false, message: "خطأ في التحقق الأمني." });
+      logger.error(`[reCAPTCHA Error] ${err.message}`);
+      return res.status(500).json({ success: false, message: "خطأ أثناء التحقق الأمني." });
     }
   }
 
-  const record = leaves.find(
-    item => item.serviceCode === serviceCode && item.idNumber === idNumber
+  // البحث عن السجل
+  const record = leaves.find(item =>
+    item.serviceCode === serviceCode && item.idNumber === idNumber
   );
 
   if (record) {
     return res.json({ success: true, record });
   }
-  res.status(404).json({ success: false, message: "لا يوجد سجل مطابق." });
+  return res.status(404).json({ success: false, message: "لا يوجد سجل مطابق." });
 });
 
-// إضافة إجازة جديدة
+// ===== مسار إضافة إجازة جديدة =====
 app.post('/api/add-leave', (req, res) => {
   const { serviceCode, idNumber, name, reportDate, startDate, endDate, doctorName, jobTitle } = req.body;
+
+  // تحقق من جميع الحقول
   if (
     typeof serviceCode !== 'string' || !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
     typeof idNumber   !== 'string' || !/^[0-9]{10}$/.test(idNumber) ||
@@ -200,17 +265,18 @@ app.post('/api/add-leave', (req, res) => {
   return res.json({ success: true, message: "تمت إضافة الإجازة بنجاح." });
 });
 
-// أي مسار غير موجود
+// ===== مسار 404 =====
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "الصفحة غير موجودة." });
 });
 
-// إيقاف آمن للخدمة
+// ===== إيقاف آمن =====
 process.on('SIGTERM', () => {
-  logger.info("تم إيقاف الخدمة بطاقة عالية الأمان.");
+  logger.info("تم إيقاف الخدمة بأمان.");
   process.exit(0);
 });
 
+// ===== بدء الاستماع =====
 app.listen(PORT, () => {
-  logger.info(`✅ SickLV Ultra Secure API is running on port ${PORT}`);
+  logger.info(`✅ SickLV API تعمل على المنفذ ${PORT}`);
 });
