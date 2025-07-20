@@ -20,12 +20,13 @@ const RECAPTCHA_SECRET  = process.env.RECAPTCHASECRETKEY || '';
 // الدومينات المسموح لها بالوصول للـ API
 const ALLOWED_ORIGINS   = [
   'https://sicklv.shop',
-  'https://www.sicklv.shop'
+  'https://www.sicklv.shop',
+  'https://my-project-502.onrender.com'
 ];
 
 // رموز دول الخليج وبعض الدول المسموح بها
 const ALLOWED_COUNTRIES = [
-  'SA', 'AE', 'KW', 'QA', 'OM', 'BH', 'EG', 'JO', 'SD'
+  'SA','AE','KW','QA','OM','BH','EG','JO','SD'
 ];
 
 // إعداد Winston للتسجيل في ملف والكونسول
@@ -177,8 +178,6 @@ const leavesRaw = [
     jobTitle: "استشاري"
   }
 ];
-
-// إضافة حقل days لكل سجل
 const leaves = leavesRaw.map(rec => ({
   ...rec,
   days: calcDays(rec.startDate, rec.endDate)
@@ -187,8 +186,6 @@ const leaves = leavesRaw.map(rec => ({
 // ===== مسار استعلام الإجازة =====
 app.post('/api/leave', async (req, res) => {
   const { serviceCode, idNumber, captchaToken } = req.body;
-
-  // التحقق من المدخلات
   if (
     typeof serviceCode !== 'string' ||
     !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
@@ -198,7 +195,7 @@ app.post('/api/leave', async (req, res) => {
     return res.status(400).json({ success: false, message: "البيانات غير صحيحة." });
   }
 
-  // التحقق بـ reCAPTCHA (اختياري)
+  // reCAPTCHA اختياري
   if (RECAPTCHA_SECRET && captchaToken) {
     try {
       const resp = await axios.post(
@@ -209,9 +206,7 @@ app.post('/api/leave', async (req, res) => {
         }).toString(),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
       );
-
-      if (!resp.data.success ||
-         (resp.data.score !== undefined && resp.data.score < 0.5)) {
+      if (!resp.data.success || (resp.data.score !== undefined && resp.data.score < 0.5)) {
         logger.warn(`[reCAPTCHA Failed] IP: ${req.ip}`);
         return res.status(403).json({ success: false, message: "فشل التحقق الأمني." });
       }
@@ -221,11 +216,9 @@ app.post('/api/leave', async (req, res) => {
     }
   }
 
-  // البحث عن السجل
   const record = leaves.find(item =>
     item.serviceCode === serviceCode && item.idNumber === idNumber
   );
-
   if (record) {
     return res.json({ success: true, record });
   }
@@ -235,8 +228,6 @@ app.post('/api/leave', async (req, res) => {
 // ===== مسار إضافة إجازة جديدة =====
 app.post('/api/add-leave', (req, res) => {
   const { serviceCode, idNumber, name, reportDate, startDate, endDate, doctorName, jobTitle } = req.body;
-
-  // تحقق من جميع الحقول
   if (
     typeof serviceCode !== 'string' || !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
     typeof idNumber   !== 'string' || !/^[0-9]{10}$/.test(idNumber) ||
@@ -249,19 +240,12 @@ app.post('/api/add-leave', (req, res) => {
   ) {
     return res.status(400).json({ success: false, message: "مدخلات غير صحيحة." });
   }
-
   leaves.push({
-    serviceCode,
-    idNumber,
-    name,
-    reportDate,
-    startDate,
-    endDate,
-    doctorName,
-    jobTitle,
+    serviceCode, idNumber, name,
+    reportDate, startDate, endDate,
+    doctorName, jobTitle,
     days: calcDays(startDate, endDate)
   });
-
   return res.json({ success: true, message: "تمت إضافة الإجازة بنجاح." });
 });
 
