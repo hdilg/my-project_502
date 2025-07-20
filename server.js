@@ -1,3 +1,4 @@
+
 // server.js — منصة إدارة إجازات "عبدالإله سليمان عبدالله الهديلج"
 
 const express       = require('express');
@@ -18,14 +19,6 @@ const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET || '';
 
 // إذا كان الخادم خلف CDN أو Load Balancer
 app.set('trust proxy', 1);
-
-// قائمة النطاقات المسموح لها بالوصول
-const ALLOWED_ORIGINS = [
-  'https://sicklv.shop',
-  'https://www.sicklv.shop',
-  'https://my-project-502-1.onrender.com',
-  'https://your-netlify-site.netlify.app' // ← عدّل ليناسب دومين الواجهة النهائي
-];
 
 // إعداد Winston للتسجيل
 const logger = winston.createLogger({
@@ -56,18 +49,8 @@ app.use(helmet.contentSecurityPolicy({
   }
 }));
 
-// ===== ضبط CORS =====
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
-      return callback(null, true);
-    }
-    logger.warn(`[CORS Blocked] Origin: ${origin}`);
-    callback(new Error('الدخول مرفوض من هذا المصدر'));
-  },
-  credentials: true,
-  optionsSuccessStatus: 200
-}));
+// ===== إلغاء قيود CORS تمامًا =====
+app.use(cors());
 
 // ===== حماية إضافية وميدل‌ويرات =====
 app.use(hpp());
