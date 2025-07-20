@@ -15,16 +15,20 @@ const path          = require('path');
 
 const app               = express();
 const PORT              = process.env.PORT || 3000;
-const RECAPTCHA_SECRET  = process.env.RECAPTCHASECRETKEY || '';
+const RECAPTCHA_SECRET  = process.env.RECAPTCHA_SECRET || '';
+
+// ثقة بالـ proxy لتحصيل الـ IP الحقيقي خلف CDN أو Load Balancer
+app.set('trust proxy', 1);
 
 // الدومينات المسموح لها بالوصول للـ API
 const ALLOWED_ORIGINS = [
   'https://sicklv.shop',
   'https://www.sicklv.shop',
-  'https://my-project-502.onrender.com'
+  'https://my-project-502-1.onrender.com',
+  'https://your-netlify-site.netlify.app' // ← أضف هنا دومين الواجهة الفعلي
 ];
 
-// إعداد Winston للتسجيل في ملف والكونسول
+// إعداد Winston للتسجيل
 const logger = winston.createLogger({
   transports: [
     new winston.transports.File({ filename: 'activity.log' }),
@@ -35,21 +39,21 @@ const logger = winston.createLogger({
 // ===== رؤوس الأمان =====
 app.use(helmet());
 app.use(helmet.hsts({
-  maxAge: 2 * 365 * 24 * 60 * 60, // سنتان بالثواني
+  maxAge: 2 * 365 * 24 * 60 * 60,
   includeSubDomains: true,
   preload: true
 }));
 app.use(helmet.contentSecurityPolicy({
   directives: {
-    defaultSrc:      ["'self'"],
-    scriptSrc:       ["'self'", "https://www.google.com", "https://www.gstatic.com"],
-    styleSrc:        ["'self'", "'unsafe-inline'"],
-    imgSrc:          ["'self'", "data:"],
-    objectSrc:       ["'none'"],
-    frameAncestors:  ["'none'"],
+    defaultSrc: ["'self'"],
+    scriptSrc:  ["'self'", "https://www.google.com", "https://www.gstatic.com"],
+    styleSrc:   ["'self'", "'unsafe-inline'"],
+    imgSrc:     ["'self'", "data:"],
+    objectSrc:  ["'none'"],
+    frameAncestors: ["'none'"],
     upgradeInsecureRequests: [],
-    baseUri:         ["'self'"],
-    formAction:      ["'self'"]
+    baseUri:    ["'self'"],
+    formAction: ["'self'"]
   }
 }));
 
@@ -75,8 +79,8 @@ app.use(useragent.express());
 
 // ===== تحديد الحد الأعلى للطلبات =====
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 دقيقة
-  max: 30,                  // 30 طلب لكل IP
+  windowMs: 15 * 60 * 1000,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -160,11 +164,7 @@ const leavesRaw = [
     jobTitle: "استشاري"
   }
 ];
-
-const leaves = leavesRaw.map(rec => ({
-  ...rec,
-  days: calcDays(rec.startDate, rec.endDate)
-}));
+const leaves = leavesRaw.map(rec => ({ ...rec, days: calcDays(rec.startDate, rec.endDate) }));
 
 // ===== مسار استعلام الإجازة =====
 app.post('/api/leave', async (req, res) => {
@@ -172,10 +172,8 @@ app.post('/api/leave', async (req, res) => {
 
   // التحقق من صحة المدخلات
   if (
-    typeof serviceCode !== 'string' ||
-    !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
-    typeof idNumber !== 'string' ||
-    !/^[0-9]{10}$/.test(idNumber)
+    typeof serviceCode !== 'string' || !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
+    typeof idNumber   !== 'string' || !/^[0-9]{10}$/.test(idNumber)
   ) {
     return res.status(400).json({ success: false, message: "البيانات غير صحيحة." });
   }
@@ -185,10 +183,7 @@ app.post('/api/leave', async (req, res) => {
     try {
       const resp = await axios.post(
         'https://www.google.com/recaptcha/api/siteverify',
-        new URLSearchParams({
-          secret: RECAPTCHA_SECRET,
-          response: captchaToken
-        }).toString(),
+        new URLSearchParams({ secret: RECAPTCHA_SECRET, response: captchaToken }).toString(),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
       );
       if (!resp.data.success || (resp.data.score !== undefined && resp.data.score < 0.5)) {
@@ -233,12 +228,7 @@ app.post('/api/add-leave', (req, res) => {
     return res.status(400).json({ success: false, message: "مدخلات غير صحيحة." });
   }
 
-  leaves.push({
-    serviceCode, idNumber, name,
-    reportDate, startDate, endDate,
-    doctorName, jobTitle,
-    days: calcDays(startDate, endDate)
-  });
+  leaves.push({ serviceCode, idNumber, name, reportDate, startDate, endDate, doctorName, jobTitle, days: calcDays(startDate, endDate) });
   return res.json({ success: true, message: "تمت إضافة الإجازة بنجاح." });
 });
 
