@@ -1,32 +1,27 @@
 // server.js — منصة إدارة إجازات "عبدالإله سليمان عبدالله الهديلج"
 
 require('dotenv').config();
-const express         = require('express');
-const helmet          = require('helmet');
-const cors            = require('cors');
-const rateLimit       = require('express-rate-limit');
-const hpp             = require('hpp');
-const useragent       = require('express-useragent');
-const winston         = require('winston');
-const axios           = require('axios');
-const xssClean        = require('xss-clean');
-const mongoSanitize   = require('express-mongo-sanitize');
-const path            = require('path');
+const express       = require('express');
+const helmet        = require('helmet');
+const cors          = require('cors');
+const rateLimit     = require('express-rate-limit');
+const hpp           = require('hpp');
+const useragent     = require('express-useragent');
+const winston       = require('winston');
+const axios         = require('axios');
+const xssClean      = require('xss-clean');
+const mongoSanitize = require('express-mongo-sanitize');
+const path          = require('path');
 
 const app               = express();
 const PORT              = process.env.PORT || 3000;
 const RECAPTCHA_SECRET  = process.env.RECAPTCHASECRETKEY || '';
 
 // الدومينات المسموح لها بالوصول للـ API
-const ALLOWED_ORIGINS   = [
+const ALLOWED_ORIGINS = [
   'https://sicklv.shop',
   'https://www.sicklv.shop',
   'https://my-project-502.onrender.com'
-];
-
-// رموز دول الخليج وبعض الدول المسموح بها
-const ALLOWED_COUNTRIES = [
-  'SA','AE','KW','QA','OM','BH','EG','JO','SD'
 ];
 
 // إعداد Winston للتسجيل في ملف والكونسول
@@ -46,15 +41,15 @@ app.use(helmet.hsts({
 }));
 app.use(helmet.contentSecurityPolicy({
   directives: {
-    defaultSrc: ["'self'"],
-    scriptSrc:  ["'self'", "https://www.google.com", "https://www.gstatic.com"],
-    styleSrc:   ["'self'", "'unsafe-inline'"],
-    imgSrc:     ["'self'", "data:"],
-    objectSrc:  ["'none'"],
-    frameAncestors: ["'none'"],
+    defaultSrc:      ["'self'"],
+    scriptSrc:       ["'self'", "https://www.google.com", "https://www.gstatic.com"],
+    styleSrc:        ["'self'", "'unsafe-inline'"],
+    imgSrc:          ["'self'", "data:"],
+    objectSrc:       ["'none'"],
+    frameAncestors:  ["'none'"],
     upgradeInsecureRequests: [],
-    baseUri:    ["'self'"],
-    formAction: ["'self'"]
+    baseUri:         ["'self'"],
+    formAction:      ["'self'"]
   }
 }));
 
@@ -89,19 +84,6 @@ app.use(rateLimit({
     message: "تم تقييد طلبك مؤقتاً."
   }
 }));
-
-// ===== حجب جغرافي عبر Cloudflare =====
-app.use((req, res, next) => {
-  const country = req.headers['cf-ipcountry'];
-  if (country && !ALLOWED_COUNTRIES.includes(country)) {
-    const ip = req.headers['cf-connecting-ip'] || req.ip;
-    logger.warn(`[GeoBlock] Country: ${country}, IP: ${ip}`);
-    return res
-      .status(403)
-      .json({ success: false, message: "الوصول مرفوض من منطقتك." });
-  }
-  next();
-});
 
 // ===== تسجيل حركة كل طلب =====
 app.use((req, res, next) => {
@@ -178,6 +160,7 @@ const leavesRaw = [
     jobTitle: "استشاري"
   }
 ];
+
 const leaves = leavesRaw.map(rec => ({
   ...rec,
   days: calcDays(rec.startDate, rec.endDate)
@@ -186,6 +169,8 @@ const leaves = leavesRaw.map(rec => ({
 // ===== مسار استعلام الإجازة =====
 app.post('/api/leave', async (req, res) => {
   const { serviceCode, idNumber, captchaToken } = req.body;
+
+  // التحقق من صحة المدخلات
   if (
     typeof serviceCode !== 'string' ||
     !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
@@ -195,7 +180,7 @@ app.post('/api/leave', async (req, res) => {
     return res.status(400).json({ success: false, message: "البيانات غير صحيحة." });
   }
 
-  // reCAPTCHA اختياري
+  // التحقق اختياري عبر reCAPTCHA
   if (RECAPTCHA_SECRET && captchaToken) {
     try {
       const resp = await axios.post(
@@ -216,6 +201,7 @@ app.post('/api/leave', async (req, res) => {
     }
   }
 
+  // البحث عن السجل وإرجاعه
   const record = leaves.find(item =>
     item.serviceCode === serviceCode && item.idNumber === idNumber
   );
@@ -227,7 +213,13 @@ app.post('/api/leave', async (req, res) => {
 
 // ===== مسار إضافة إجازة جديدة =====
 app.post('/api/add-leave', (req, res) => {
-  const { serviceCode, idNumber, name, reportDate, startDate, endDate, doctorName, jobTitle } = req.body;
+  const {
+    serviceCode, idNumber, name,
+    reportDate, startDate, endDate,
+    doctorName, jobTitle
+  } = req.body;
+
+  // التحقق من صحة المدخلات
   if (
     typeof serviceCode !== 'string' || !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
     typeof idNumber   !== 'string' || !/^[0-9]{10}$/.test(idNumber) ||
@@ -240,6 +232,7 @@ app.post('/api/add-leave', (req, res) => {
   ) {
     return res.status(400).json({ success: false, message: "مدخلات غير صحيحة." });
   }
+
   leaves.push({
     serviceCode, idNumber, name,
     reportDate, startDate, endDate,
@@ -249,7 +242,7 @@ app.post('/api/add-leave', (req, res) => {
   return res.json({ success: true, message: "تمت إضافة الإجازة بنجاح." });
 });
 
-// ===== مسار 404 =====
+// ===== مسار 404 لجميع المسارات الأخرى =====
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "الصفحة غير موجودة." });
 });
