@@ -1,25 +1,17 @@
 {
-  "name": "sicklv-api",
+  "name": "sicklv-service",
   "version": "1.0.0",
-  "description": "API لمنصة الخدمات الطبية Sicklv",
+  "description": "API وخادم منصة الاستعلام عن الإجازات المرضية",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
-  "engines": {
-    "node": ">=14"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^16.0.3",
+    "dotenv": "^10.0.0",
     "express": "^4.18.2",
     "express-mongo-sanitize": "^2.2.0",
-    "helmet": "^6.0.0",
     "winston": "^3.8.2",
     "xss-clean": "^0.1.1"
-  },
-  "devDependencies": {
-    "nodemon": "^2.0.22"
   }
 }
