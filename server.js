@@ -1,17 +1,17 @@
-
-// server.js — Sicklv API للواجهة الطبية
-const express        = require('express');
-const helmet         = require('helmet');
-const xssClean       = require('xss-clean');
-const mongoSanitize  = require('express-mongo-sanitize');
-const path           = require('path');
-const winston        = require('winston');
+// server.js — Sicklv API مع تدقيق شامل ودعم جميع الأجهزة
+const express       = require('express');
+const cors          = require('cors');
+const helmet        = require('helmet');
+const xssClean      = require('xss-clean');
+const mongoSanitize = require('express-mongo-sanitize');
+const path          = require('path');
+const winston       = require('winston');
 require('dotenv').config();
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// Logger احترافي ملف وللكونسول
+// Logger احترافي لتسجيل النشاط في ملف وكونسول
 const logger = winston.createLogger({
   transports: [
     new winston.transports.File({ filename: 'activity.log' }),
@@ -19,36 +19,44 @@ const logger = winston.createLogger({
   ]
 });
 
-// حماية رؤوس، مضاد XSS، تطهير استعلامات قواعد البيانات
+// فتح CORS بالكامل لجميع المصادر
+app.use(cors({
+  origin: '*',
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
+}));
+
+// حماية رؤوس HTTP - مكافحة XSS - تنظيف مدخلات Mongo
 app.use(helmet());
 app.use(xssClean());
 app.use(mongoSanitize());
 app.use(express.json({ limit: '15kb' }));
 
-// تسجيل كل طلب
+// تسجيل كل طلب وارد
 app.use((req, res, next) => {
-  logger.info(`[${new Date().toISOString()}] [${req.ip}] ${req.method} ${req.originalUrl}`);
+  logger.info(
+    `[${new Date().toISOString()}] [${req.ip}] ${req.method} ${req.originalUrl}`
+  );
   next();
 });
 
-// تقديم ملفات الواجهة - ضع كل ملفاتك الأمامية في مجلد public (index.html, css, صور ...)
+// تقديم ملفات الواجهة من مجلد public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// دالة لحساب الأيام بين تاريخين
+// دالة لحساب عدد الأيام بين تاريخين (شاملة اليومين)
 function calcDays(start, end) {
-  try {
-    const s = new Date(start);
-    const e = new Date(end);
-    if (isNaN(s) || isNaN(e) || e < s) return 0;
-    return Math.floor((e - s) / (1000 * 60 * 60 * 24)) + 1;
-  } catch { return 0; }
+  const s = new Date(start);
+  const e = new Date(end);
+  if (isNaN(s) || isNaN(e) || e < s) return 0;
+  const msPerDay = 1000 * 60 * 60 * 24;
+  return Math.floor((e - s) / msPerDay) + 1;
 }
 
-// بيانات الإجازات (يمكنك وضعها في قاعدة بيانات لاحقاً)
+// بيانات تجريبية للإجازات (يمكن لاحقاً ربطها بقاعدة بيانات)
 const leavesRaw = [
   {serviceCode: "GSL25021372778", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-02-09", startDate: "2025-02-09", endDate: "2025-02-24", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
-  {serviceCode: "GSL25021898579", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-02-25", startDate: "2025-02-25", endDate: "2025-03-26", doctorName: "جمال راشد السر محمد احمد", jobTitle: "استشاري"},
-  {serviceCode: "GSL25022385036", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-03-27", startDate: "2025-03-27", endDate: "2025-04-17", doctorName: "جمال راشد السر محمد احمد", jobTitle: "استشاري"},
+  {serviceCode: "GSL25021898579", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-02-25", startDate: "2025-02-25", endDate: "2025-03-26", doctorName: "جمال راشد السر محمد أحمد", jobTitle: "استشاري"},
+  {serviceCode: "GSL25022385036", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-03-27", startDate: "2025-03-27", endDate: "2025-04-17", doctorName: "جمال راشد السر محمد أحمد", jobTitle: "استشاري"},
   {serviceCode: "GSL25022884602", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-04-18", startDate: "2025-04-18", endDate: "2025-05-15", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
   {serviceCode: "GSL25023345012", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-05-16", startDate: "2025-05-16", endDate: "2025-06-12", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
   {serviceCode: "GSL25062955824", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-06-13", startDate: "2025-06-13", endDate: "2025-07-11", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
@@ -59,12 +67,13 @@ const leaves = leavesRaw.map(rec => ({
   days: calcDays(rec.startDate, rec.endDate)
 }));
 
-// API: استعلام الإجازة المرضية
+// API: استعلام عن الإجازة المرضية
 app.post('/api/leave', (req, res) => {
   const { serviceCode, idNumber } = req.body;
+  // تدقيق المدخلات
   if (
     typeof serviceCode !== 'string' || !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
-    typeof idNumber !== 'string' || !/^[0-9]{10}$/.test(idNumber)
+    typeof idNumber    !== 'string' || !/^[0-9]{10}$/.test(idNumber)
   ) {
     return res.status(400).json({ success: false, message: "البيانات غير صحيحة." });
   }
@@ -72,25 +81,27 @@ app.post('/api/leave', (req, res) => {
   const record = leaves.find(
     item => item.serviceCode === serviceCode && item.idNumber === idNumber
   );
+
   if (record) return res.json({ success: true, record });
   res.status(404).json({ success: false, message: "لا يوجد سجل مطابق." });
 });
 
-// API: إضافة إجازة جديدة (اختياري - تجريبي)
+// API: إضافة إجازة جديدة (مع تدقيق)
 app.post('/api/add-leave', (req, res) => {
   const { serviceCode, idNumber, name, reportDate, startDate, endDate, doctorName, jobTitle } = req.body;
   if (
     typeof serviceCode !== 'string' || !/^[A-Za-z0-9]{8,20}$/.test(serviceCode) ||
-    typeof idNumber   !== 'string' || !/^[0-9]{10}$/.test(idNumber) ||
-    typeof name       !== 'string' ||
-    typeof reportDate !== 'string' ||
-    typeof startDate  !== 'string' ||
-    typeof endDate    !== 'string' ||
-    typeof doctorName !== 'string' ||
-    typeof jobTitle   !== 'string'
+    typeof idNumber    !== 'string' || !/^[0-9]{10}$/.test(idNumber) ||
+    typeof name        !== 'string' ||
+    typeof reportDate  !== 'string' ||
+    typeof startDate   !== 'string' ||
+    typeof endDate     !== 'string' ||
+    typeof doctorName  !== 'string' ||
+    typeof jobTitle    !== 'string'
   ) {
     return res.status(400).json({ success: false, message: "مدخلات غير صحيحة." });
   }
+
   leaves.push({
     serviceCode,
     idNumber,
@@ -102,21 +113,22 @@ app.post('/api/add-leave', (req, res) => {
     jobTitle,
     days: calcDays(startDate, endDate)
   });
+
   return res.json({ success: true, message: "تمت الإضافة." });
 });
 
-// مسار لأي رابط غير معرف (404)
+// أي مسار غير معرف → 404
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "الصفحة غير موجودة." });
 });
 
-// إنهاء الخدمة باحتراف إذا جاء إشارة إغلاق
+// إغلاق آمن عند SIGTERM
 process.on('SIGTERM', () => {
   logger.info("تم إيقاف الخدمة.");
   process.exit(0);
 });
 
-// بدء السيرفر على البورت المحدد تلقائيًا من المنصة أو 3000 افتراضياً
+// بدء السيرفر
 app.listen(PORT, () => {
   logger.info(`✅ Sicklv API is running on port ${PORT}`);
 });
