@@ -1,5 +1,5 @@
 
-// server.js — منصة إدارة الإجازات المرضية
+// server.js — Sicklv API للواجهة الطبية
 const express        = require('express');
 const helmet         = require('helmet');
 const xssClean       = require('xss-clean');
@@ -11,7 +11,7 @@ require('dotenv').config();
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// نظام التسجيل واللوجات
+// Logger احترافي ملف وللكونسول
 const logger = winston.createLogger({
   transports: [
     new winston.transports.File({ filename: 'activity.log' }),
@@ -19,19 +19,19 @@ const logger = winston.createLogger({
   ]
 });
 
-// حمايات أساسية فقط
+// حماية رؤوس، مضاد XSS، تطهير استعلامات قواعد البيانات
 app.use(helmet());
 app.use(xssClean());
 app.use(mongoSanitize());
-app.use(express.json({ limit: '12kb' }));
+app.use(express.json({ limit: '15kb' }));
 
-// لوج لكل طلب
+// تسجيل كل طلب
 app.use((req, res, next) => {
   logger.info(`[${new Date().toISOString()}] [${req.ip}] ${req.method} ${req.originalUrl}`);
   next();
 });
 
-// تقديم ملفات ثابتة (public)
+// تقديم ملفات الواجهة - ضع كل ملفاتك الأمامية في مجلد public (index.html, css, صور ...)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // دالة لحساب الأيام بين تاريخين
@@ -44,7 +44,7 @@ function calcDays(start, end) {
   } catch { return 0; }
 }
 
-// بيانات الإجازات الافتراضية (تقدر تغيرها لقواعد بيانات أو ملف JSON)
+// بيانات الإجازات (يمكنك وضعها في قاعدة بيانات لاحقاً)
 const leavesRaw = [
   {serviceCode: "GSL25021372778", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-02-09", startDate: "2025-02-09", endDate: "2025-02-24", doctorName: "هدى مصطفى خضر دحبور", jobTitle: "استشاري"},
   {serviceCode: "GSL25021898579", idNumber: "1088576044", name: "عبدالإله سليمان عبدالله الهديلج", reportDate: "2025-02-25", startDate: "2025-02-25", endDate: "2025-03-26", doctorName: "جمال راشد السر محمد احمد", jobTitle: "استشاري"},
@@ -59,7 +59,7 @@ const leaves = leavesRaw.map(rec => ({
   days: calcDays(rec.startDate, rec.endDate)
 }));
 
-// استعلام عن الإجازة
+// API: استعلام الإجازة المرضية
 app.post('/api/leave', (req, res) => {
   const { serviceCode, idNumber } = req.body;
   if (
@@ -68,16 +68,15 @@ app.post('/api/leave', (req, res) => {
   ) {
     return res.status(400).json({ success: false, message: "البيانات غير صحيحة." });
   }
+
   const record = leaves.find(
     item => item.serviceCode === serviceCode && item.idNumber === idNumber
   );
-  if (record) {
-    return res.json({ success: true, record });
-  }
+  if (record) return res.json({ success: true, record });
   res.status(404).json({ success: false, message: "لا يوجد سجل مطابق." });
 });
 
-// إضافة إجازة جديدة (للاختبار فقط)
+// API: إضافة إجازة جديدة (اختياري - تجريبي)
 app.post('/api/add-leave', (req, res) => {
   const { serviceCode, idNumber, name, reportDate, startDate, endDate, doctorName, jobTitle } = req.body;
   if (
@@ -103,20 +102,21 @@ app.post('/api/add-leave', (req, res) => {
     jobTitle,
     days: calcDays(startDate, endDate)
   });
-  return res.json({ success: true, message: "تمت إضافة الإجازة بنجاح." });
+  return res.json({ success: true, message: "تمت الإضافة." });
 });
 
-// صفحة غير موجودة
+// مسار لأي رابط غير معرف (404)
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "الصفحة غير موجودة." });
 });
 
-// shutdown آمن
+// إنهاء الخدمة باحتراف إذا جاء إشارة إغلاق
 process.on('SIGTERM', () => {
-  logger.info("تم إيقاف الخدمة بنجاح.");
+  logger.info("تم إيقاف الخدمة.");
   process.exit(0);
 });
 
+// بدء السيرفر على البورت المحدد تلقائيًا من المنصة أو 3000 افتراضياً
 app.listen(PORT, () => {
-  logger.info(`✅ SickLV API is running on port ${PORT}`);
+  logger.info(`✅ Sicklv API is running on port ${PORT}`);
 });
